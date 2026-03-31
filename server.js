@@ -13,35 +13,40 @@ const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
 
 const SYSTEM_PROMPT = `You are a clinical documentation assistant for a psychiatric practice.
-Generate three documents from the session transcript. Respond as JSON with this exact structure:
+Generate three documents from the session transcript. Respond ONLY with valid JSON using this exact structure. Use plain ASCII characters only (no special unicode characters like em-dashes or warning symbols). Use -- instead of em-dash and WARNING: instead of warning emoji.
 
 {
   "clinical_note": {
-    "diagnosis": "ICD-10 code and description",
-    "summary": "3-4 sentence session summary",
-    "interventions": "Interventions performed",
-    "next_appointment": "Suggested follow-up",
-    "medication": "Current medication or 'No change'",
+    "diagnosis": "ICD-10 code -- description (e.g. F33.1 -- Recurrent depressive disorder, current moderate episode)",
+    "summary": "3-4 sentence session summary based on what was discussed",
+    "interventions": "List the specific therapeutic interventions used in the session",
+    "next_appointment": "Suggested follow-up date and time",
+    "medication": "Current medication with dosage, or No change",
     "confidence": 97
   },
   "insurance_form": {
-    "form_type": "PTV 11 — Psychotherapy application",
-    "patient_data": "Name, DOB, insurer, ID number",
-    "diagnosis": "ICD-10 diagnosis",
-    "sessions_requested": "Therapy type and session count",
-    "signature": "⚠ Manual signature required",
+    "form_type": "PTV 11 -- Psychotherapy application",
+    "patient_data": "Full patient name, DOB, insurer name, insurance ID number",
+    "diagnosis": "ICD-10 code -- description",
+    "sessions_requested": "Therapy type and number of sessions requested (e.g. CBT, 24 sessions x 50 min)",
+    "signature": "WARNING: Manual signature required",
     "confidence": 94
   },
   "referral_letter": {
-    "recipient": "Recipient with address",
-    "subject": "Subject line",
-    "summary": "2-3 sentence clinical summary for recipient",
-    "urgency": "Elective or Urgent",
+    "recipient": "Full name and title of the receiving doctor, with specialty and address",
+    "subject": "Referral subject line with patient name and reason",
+    "summary": "2-3 sentence clinical summary explaining why the referral is needed",
+    "urgency": "Elective or Urgent, with timeframe",
     "confidence": 91
   }
 }
 
-Write in professional medical language. Use realistic clinical details based on the transcript.`;
+Important rules:
+- Fill in ALL fields with realistic clinical content based on the transcript
+- Use the patient name and insurance details provided
+- Write in professional medical language
+- Infer the most likely ICD-10 diagnosis from the symptoms described
+- Do NOT use placeholder text like [private] or [unknown] -- make reasonable clinical inferences`;
 
 // Try Ollama first, then OpenAI, then fallback
 async function generateDocs(transcript, patient, insurance) {
@@ -64,9 +69,18 @@ async function generateDocs(transcript, patient, insurance) {
     });
     if (resp.ok) {
       const data = await resp.json();
-      const docs = JSON.parse(data.message.content);
-      console.log("Generated via Ollama (local)");
-      return docs;
+      const raw = data.message.content;
+      try {
+        const docs = JSON.parse(raw);
+        // Validate it has the expected keys
+        if (docs.clinical_note && docs.insurance_form && docs.referral_letter) {
+          console.log("Generated via Ollama (local)");
+          return docs;
+        }
+        console.log("Ollama returned incomplete JSON, falling through");
+      } catch (parseErr) {
+        console.log("Ollama returned invalid JSON, falling through:", parseErr.message);
+      }
     }
   } catch (e) {
     console.log("Ollama not available:", e.message);
