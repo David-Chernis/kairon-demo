@@ -827,6 +827,7 @@ const transcriptLines=[
 ];
 const sampleTranscript=transcriptLines.map(l=>l.speaker+": "+l.text).join("\n\n");
 let typeTimer=null, lineIdx=0, charIdx=0;
+let mediaRecorder=null, audioChunks=[], micStream=null;
 
 function flipTog(){
   consent=!consent;
@@ -845,7 +846,7 @@ function toggleRec(){
   isRec?stopRec():startRec();
 }
 
-function startRec(){
+async function startRec(){
   isRec=true;secs=0;lineIdx=0;charIdx=0;
   document.getElementById('rz').classList.add('live');
   document.getElementById('rz').style.minHeight='60px';
@@ -860,7 +861,20 @@ function startRec(){
   b.innerHTML='<svg width="12" height="12" viewBox="0 0 12 12"><rect x="2.5" y="2.5" width="7" height="7" rx="1" fill="white"/></svg> Stop & generate';
   b.className='btn btn-stop';
   iv=setInterval(()=>{secs++;const m=String(Math.floor(secs/60)).padStart(2,'0');const s=String(secs%60).padStart(2,'0');document.getElementById('rt').textContent=m+':'+s;},1000);
-  // Show live transcript
+
+  // Start real microphone recording
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(micStream, { mimeType: 'audio/webm' });
+    audioChunks = [];
+    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+    mediaRecorder.start();
+    console.log('Microphone recording started');
+  } catch(e) {
+    console.log('Microphone not available, using simulated transcript:', e.message);
+  }
+
+  // Show live transcript (simulated typing while recording)
   const lt=document.getElementById('live-transcript');
   lt.style.display='block';lt.innerHTML='';
   startTyping();
@@ -898,34 +912,81 @@ function startTyping(){
   typeTimer=setTimeout(typeNext,500);
 }
 
-function stopRec(){
+async function stopRec(){
   isRec=false;clearInterval(iv);clearTimeout(typeTimer);
   document.getElementById('rz').classList.remove('live');
   document.getElementById('rz').style.minHeight='';
   document.getElementById('rz').style.flex='';
   document.getElementById('rl').textContent='Session complete';
-  const rs=document.getElementById('rs');rs.textContent='Generating documents…';rs.style.display='';
+  const rs=document.getElementById('rs');rs.textContent='Transcribing audio…';rs.style.display='';
   document.getElementById('rt').style.display='none';
   document.getElementById('wf').style.display='none';
-  // Show full transcript instantly if not fully typed
-  const lt=document.getElementById('live-transcript');
-  lt.innerHTML='';
-  transcriptLines.forEach(line=>{
-    const sp=document.createElement('div');
-    sp.style.cssText='margin-top:6px;margin-bottom:1px';
-    sp.innerHTML='<span style="font-size:10px;font-weight:600;color:'+(line.speaker==='Therapist'?'var(--red)':'var(--text3)')+';text-transform:uppercase;letter-spacing:0.05em">'+line.speaker+'</span>';
-    lt.appendChild(sp);
-    const txt=document.createElement('span');
-    txt.style.cssText='font-size:12px;color:var(--text)';
-    txt.textContent=line.text;
-    lt.appendChild(txt);
-  });
-  document.getElementById('rec-st').textContent='Processing…';
+  document.getElementById('rec-st').textContent='Transcribing…';
   document.getElementById('rec-st').style.color='var(--amber)';
   const b=document.getElementById('rec-btn');
   b.innerHTML='<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="2.5" fill="white"/><circle cx="6" cy="6" r="4.5" stroke="white" stroke-width="1.2"/></svg> Start session';
   b.className='btn btn-primary';
-  runOv();
+
+  // Stop microphone and try real transcription
+  let realTranscript = null;
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    await new Promise(resolve => {
+      mediaRecorder.onstop = resolve;
+      mediaRecorder.stop();
+    });
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+
+    if (audioChunks.length > 0) {
+      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+      // Send to Whisper server
+      try {
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.webm');
+        const resp = await fetch('/api/transcribe', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (data.transcript && data.transcript.trim().length > 10) {
+          realTranscript = data.transcript;
+          console.log('Real Whisper transcript:', realTranscript.substring(0, 100));
+        }
+      } catch(e) {
+        console.log('Whisper transcription failed, using simulated:', e.message);
+      }
+    }
+  }
+
+  // Show transcript in the live area
+  const lt=document.getElementById('live-transcript');
+  lt.innerHTML='';
+  if (realTranscript) {
+    // Show real transcript
+    const sp=document.createElement('div');
+    sp.style.cssText='margin-top:2px;margin-bottom:4px';
+    sp.innerHTML='<span style="font-size:10px;font-weight:600;color:var(--green);text-transform:uppercase;letter-spacing:0.05em">WHISPER TRANSCRIPTION (LOCAL)</span>';
+    lt.appendChild(sp);
+    const txt=document.createElement('span');
+    txt.style.cssText='font-size:12px;color:var(--text)';
+    txt.textContent=realTranscript;
+    lt.appendChild(txt);
+  } else {
+    // Show simulated transcript
+    transcriptLines.forEach(line=>{
+      const sp=document.createElement('div');
+      sp.style.cssText='margin-top:6px;margin-bottom:1px';
+      sp.innerHTML='<span style="font-size:10px;font-weight:600;color:'+(line.speaker==='Therapist'?'var(--red)':'var(--text3)')+';text-transform:uppercase;letter-spacing:0.05em">'+line.speaker+'</span>';
+      lt.appendChild(sp);
+      const txt=document.createElement('span');
+      txt.style.cssText='font-size:12px;color:var(--text)';
+      txt.textContent=line.text;
+      lt.appendChild(txt);
+    });
+  }
+
+  document.getElementById('rec-st').textContent='Processing…';
+  rs.textContent='Generating documents…';
+
+  // Use real transcript for document generation if available
+  const transcriptForGen = realTranscript || sampleTranscript;
+  runOv(transcriptForGen);
 }
 
 function importHW(){
@@ -955,7 +1016,8 @@ function importHW(){
   },1800);
 }
 
-async function runOv(){
+async function runOv(transcript){
+  transcript = transcript || sampleTranscript;
   const o=document.getElementById('ov');
   o.classList.add('show');
   const steps=['ov1','ov2','ov3','ov4','ov5'];
@@ -967,8 +1029,8 @@ async function runOv(){
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
-      transcript:sampleTranscript,
-      patient:'Schmidt, Klaus · geb. 14.03.1968',
+      transcript:transcript,
+      patient:'Schmidt, Klaus · DOB 14.03.1968',
       insurance:'AOK Bayern',
       date:'31.03.2026'
     })

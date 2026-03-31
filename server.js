@@ -1,10 +1,13 @@
 require("dotenv").config();
 const express = require("express");
+const multer = require("multer");
 const path = require("path");
+const fs = require("fs");
 
 const app = express();
 app.use(express.json({ limit: "5mb" }));
 app.use(express.static(path.join(__dirname, "public")));
+const upload = multer({ dest: "uploads/" });
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
@@ -50,7 +53,7 @@ async function generateDocs(transcript, patient, insurance) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llama3:8b",
+        model: process.env.OLLAMA_MODEL || "llama3.1:8b",
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userMsg }
@@ -135,6 +138,33 @@ app.post("/api/generate", async (req, res) => {
   res.json(docs || FALLBACK);
 });
 
+// --- Transcribe audio via local Whisper ---
+const WHISPER_URL = process.env.WHISPER_URL || "http://localhost:8787";
+
+app.post("/api/transcribe", upload.single("audio"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No audio file" });
+
+  try {
+    // Send to local whisper-server.py
+    const audioData = fs.readFileSync(req.file.path);
+    const resp = await fetch(`${WHISPER_URL}/transcribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: audioData,
+    });
+    const data = await resp.json();
+    fs.unlinkSync(req.file.path);
+
+    if (data.error) throw new Error(data.error);
+    console.log("Transcribed via local Whisper:", data.text?.substring(0, 80));
+    res.json({ transcript: data.text });
+  } catch (err) {
+    console.log("Whisper error:", err.message);
+    if (req.file?.path) try { fs.unlinkSync(req.file.path); } catch(e) {}
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Health check — reports which backend is available
 app.get("/api/status", async (req, res) => {
   let ollama = false;
@@ -145,13 +175,20 @@ app.get("/api/status", async (req, res) => {
       ollama = data.models?.some(m => m.name.includes("llama")) || false;
     }
   } catch (e) {}
+  let whisper = false;
+  try {
+    const wr = await fetch(`${WHISPER_URL}/transcribe`, { method: "OPTIONS" });
+    whisper = wr.ok;
+  } catch (e) {}
   res.json({
     ollama,
+    whisper,
     openai: !!OPENAI_KEY,
     fallback: true,
-    backend: ollama ? "Ollama (local)" : OPENAI_KEY ? "OpenAI" : "Fallback"
+    backend: ollama ? "Ollama (local)" : OPENAI_KEY ? "OpenAI" : "Fallback",
+    transcription: whisper ? "Whisper (local GPU)" : "Simulated"
   });
 });
 
-const PORT = process.env.PORT || 3003;
+const PORT = process.env.PORT || 3004;
 app.listen(PORT, () => console.log(`Kairon demo: http://localhost:${PORT}`));
