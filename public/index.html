@@ -690,7 +690,7 @@ nav {
             <div class="conf">91%</div>
           </div>
           <div class="db">
-            <div class="df"><div class="dfl">Recipient</div><div class="dfv e" contenteditable="true">Dr. med. Anna Hoffmann · Specialist in Psychiatry · Maximilianstr. 22, 80539 München</div></div>
+            <div class="df"><div class="dfl">Recipient</div><div class="dfv e" contenteditable="true">Dr. med. Anna Hoffmann · Specialist in Psychiatry · Maximilianstr. 22, 80539 Munich</div></div>
             <div class="df"><div class="dfl">Subject</div><div class="dfv e" contenteditable="true">Referral: Schmidt, Klaus · DOB 14.03.1968</div></div>
             <div class="df"><div class="dfl">Summary</div><div class="dfv e" contenteditable="true">Patient in psychotherapeutic treatment for 6 months for recurrent depression. Requesting psychiatric consultation regarding medication adjustment.</div></div>
             <div class="df"><div class="dfl">Urgency</div><div class="dfv e" contenteditable="true">Elective · within 4 weeks</div></div>
@@ -766,7 +766,7 @@ nav {
 
 <div class="ov" id="ov">
   <div class="ovr"></div>
-  <div class="ovt">Documents werden erstellt…</div>
+  <div class="ovt">Generating documents…</div>
   <div class="ovs">
     <div class="ovsi" id="ov1"><div class="ovd">1</div>Transcribing audio (Whisper)</div>
     <div class="ovsi" id="ov2"><div class="ovd">2</div>Structuring text (Llama 3 8B)</div>
@@ -903,8 +903,8 @@ function stopRec(){
   document.getElementById('rz').classList.remove('live');
   document.getElementById('rz').style.minHeight='';
   document.getElementById('rz').style.flex='';
-  document.getElementById('rl').textContent='Sitzung complete';
-  const rs=document.getElementById('rs');rs.textContent='Documents werden generiert…';rs.style.display='';
+  document.getElementById('rl').textContent='Session complete';
+  const rs=document.getElementById('rs');rs.textContent='Generating documents…';rs.style.display='';
   document.getElementById('rt').style.display='none';
   document.getElementById('wf').style.display='none';
   // Show full transcript instantly if not fully typed
@@ -930,7 +930,7 @@ function stopRec(){
 
 function importHW(){
   document.getElementById('rl').textContent='Processing handwriting…';
-  document.getElementById('rs').textContent='OCR in progress local · Documents werden strukturiert';
+  document.getElementById('rs').textContent='OCR running locally · structuring documents';
   document.getElementById('rs').style.display='';
   document.getElementById('rz').style.borderColor='var(--amber)';
   const lt=document.getElementById('live-transcript');
